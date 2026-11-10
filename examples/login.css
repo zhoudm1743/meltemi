@@ -1,0 +1,93 @@
+/* External stylesheet for the wind-style login demo.
+ *
+ * The window is built in cmd/wind-style with the public chained API:
+ * account/password pointer bindings, Input/Password with Class("field"),
+ * Button("登录").ID("login") and a Column.ID("form").Gap(12).Padding(20).
+ * This sheet styles every piece from outside the code.
+ *
+ * Two priorities are exercised on purpose:
+ *   - #form sets gap: 44px and padding: 32px, but the code passes
+ *     Gap(12).Padding(20) explicitly, and an explicit Go layout value
+ *     always beats the stylesheet. The competing values stay in the file
+ *     so the priority is visible in the source.
+ *   - State selectors (#login:hover, #login:focus, #login:disabled) win
+ *     over the plain #login rule while their state is active, so each
+ *     state rule repeats the full box instead of relying on cascade
+ *     merging.
+ */
+
+#form {
+    gap: 44px;
+    padding: 32px;
+    color: #374151;
+    font-family: SourceHan;
+    font-size: 16px;
+}
+
+/* Both the account Input and the password Password carry Class("field");
+   a class selector matches either component type. */
+.field {
+    width: 320px;
+    height: 40px;
+    padding: 8px 10px;
+    background: #ffffff;
+    color: #1f2937;
+    border: 1px solid #c3cbd6;
+    border-radius: 6px;
+    font-family: SourceHan;
+    font-size: 15px;
+}
+
+#login {
+    width: 320px;
+    height: 44px;
+    padding: 10px 12px;
+    background: #2563eb;
+    color: #ffffff;
+    border: 1px solid #1d4ed8;
+    border-radius: 8px;
+    font-family: SourceHan;
+    font-size: 16px;
+}
+
+#login:hover {
+    width: 320px;
+    height: 44px;
+    padding: 10px 12px;
+    background: #1d4ed8;
+    color: #ffffff;
+    border: 1px solid #1e3fae;
+    border-radius: 8px;
+    font-family: SourceHan;
+    font-size: 16px;
+}
+
+#login:focus {
+    width: 320px;
+    height: 44px;
+    padding: 10px 12px;
+    background: #1e40af;
+    color: #ffffff;
+    border: 2px solid #93c5fd;
+    border-radius: 8px;
+    font-family: SourceHan;
+    font-size: 16px;
+}
+
+#login:disabled {
+    width: 320px;
+    height: 44px;
+    padding: 10px 12px;
+    background: #9ca3af;
+    color: #e5e7eb;
+    border: 1px solid #6b7280;
+    border-radius: 8px;
+    font-family: SourceHan;
+    font-size: 16px;
+}
+
+#status {
+    color: #047857;
+    font-family: SourceHan;
+    font-size: 14px;
+}

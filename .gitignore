@@ -1,0 +1,7 @@
+.superpowers/
+*.test
+*.out
+coverage.txt
+/meltemi
+/wind-*
+.DS_Store
