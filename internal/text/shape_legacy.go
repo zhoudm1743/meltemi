@@ -53,19 +53,22 @@ func ShapingEngine() string {
 // legacyCaretOffsets replays the kern-aware pen progression the legacy
 // rasterizer paints, returning one boundary position per rune plus the
 // final pen. Zero and negative advances flow through unchanged.
-func legacyCaretOffsets(face font.Face, value string) []fixed.Int26_6 {
+func legacyCaretOffsets(primary font.Face, pick func(rune) font.Face, value string) []fixed.Int26_6 {
 	runes := []rune(value)
 	offsets := make([]fixed.Int26_6, len(runes)+1)
 	var pen fixed.Int26_6
 	previous := rune(-1)
+	var previousFace font.Face
 	for index, r := range runes {
-		if previous >= 0 {
+		face := faceAt(primary, pick, r)
+		if previous >= 0 && previousFace == face {
 			pen += face.Kern(previous, r)
 		}
 		offsets[index] = pen
 		advance, _ := face.GlyphAdvance(r)
 		pen += advance
 		previous = r
+		previousFace = face
 	}
 	offsets[len(runes)] = pen
 	return offsets
@@ -78,10 +81,11 @@ func legacyCaretOffsets(face font.Face, value string) []fixed.Int26_6 {
 // and non-Linux builds.
 func (f *Face) legacyLayout(value string) LineLayout {
 	runes := []rune(value)
+	pick := f.legacyPick(f.face, f.size)
 	layout := LineLayout{
 		Direction:    DirectionLTR,
-		Bitmap:       rasterize(f.face, value, 1, 1, 1),
-		CaretOffsets: legacyCaretOffsets(f.face, value),
+		Bitmap:       rasterize(f.face, pick, value, 1, 1, 1),
+		CaretOffsets: legacyCaretOffsets(f.face, pick, value),
 	}
 	if len(runes) == 0 {
 		return layout
@@ -93,14 +97,17 @@ func (f *Face) legacyLayout(value string) LineLayout {
 		rects := make([]Glyph, 0, len(runes))
 		pen := fixed.Int26_6(0)
 		previous := rune(-1)
+		var previousFace font.Face
 		for _, r := range runes {
-			if previous >= 0 {
-				pen += f.face.Kern(previous, r)
+			face := faceAt(f.face, pick, r)
+			if previous >= 0 && previousFace == face {
+				pen += face.Kern(previous, r)
 			}
-			dr, _, _, adv, _ := f.face.Glyph(fixed.Point26_6{X: pen, Y: 0}, r)
+			dr, _, _, adv, _ := face.Glyph(fixed.Point26_6{X: pen, Y: 0}, r)
 			rects = append(rects, Glyph{Rune: r, X: dr.Min.X, Y: dr.Min.Y, Width: dr.Dx(), Height: dr.Dy(), Advance: adv})
 			pen += adv
 			previous = r
+			previousFace = face
 		}
 		layout.Bitmap.Glyphs = rects
 	}

@@ -2,6 +2,7 @@ package glfw
 
 import (
 	"errors"
+	"runtime"
 	"testing"
 	"time"
 
@@ -270,8 +271,11 @@ func TestXIMFilteredKeyDoesNotReachGLFWTwice(t *testing.T) {
 		t.Fatalf("ProcessKeyEvent calls = %d, want 1", len(client.keyCalls))
 	}
 	filtered := client.keyCalls[0]
-	if filtered.keyval != 0x006e || filtered.keycode != uint32(nScanCode) || filtered.state != 4 || filtered.isRelease || filtered.time == 0 {
-		t.Fatalf("filtered D-Bus key = %+v, want keyval 0x6e, keycode %d, Control state 4, press, nonzero time", filtered, nScanCode)
+	if filtered.keycode != uint32(nScanCode) || filtered.state != 4 || filtered.isRelease || filtered.time == 0 || filtered.keyval == 0 {
+		t.Fatalf("filtered key = %+v, want keycode %d, Control state 4, press, nonzero keysym and time", filtered, nScanCode)
+	}
+	if runtime.GOOS == "linux" && filtered.keyval != 0x006e {
+		t.Fatalf("filtered X11 keysym = %#x, want 0x6e", filtered.keyval)
 	}
 
 	aScanCode := glfw3.GetKeyScancode(glfw3.KeyA)
@@ -294,6 +298,9 @@ func TestXIMFilteredKeyDoesNotReachGLFWTwice(t *testing.T) {
 }
 
 func TestXIMKeySymUsesFullXKBStateAndMatchesRelease(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("X11 KeySym lookup is Linux-only")
+	}
 	tests := []struct {
 		name      string
 		key       glfw3.Key
@@ -546,6 +553,12 @@ func TestCompositionLifecycleCleanup(t *testing.T) {
 			}
 			wantEvents := []driver.EventKind{driver.EventCompositionStart, driver.EventCompositionEnd}
 			if test.name == "focus loss" {
+				wantEvents = append(wantEvents, driver.EventFocus)
+			}
+			// Hiding a visible window drops focus on Windows and GLFW reports
+			// that. X11 often does not, so a single trailing focus event is
+			// accepted and anything else still fails.
+			if test.name == "hide" && len(events) == len(wantEvents)+1 && events[len(events)-1].Kind == driver.EventFocus {
 				wantEvents = append(wantEvents, driver.EventFocus)
 			}
 			requireEventKinds(t, events, wantEvents...)

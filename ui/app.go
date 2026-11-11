@@ -336,9 +336,9 @@ func New() *App {
 // buffer after the call.
 //
 // Registration is only needed to choose a named primary typeface: faces
-// automatically fall back to system fonts (via fontconfig on Linux) for
-// runes the registered data does not cover, so CJK text no longer requires
-// registering a CJK font.
+// automatically fall back to system fonts (fontconfig on Linux, installed
+// Windows fonts such as Microsoft YaHei) for runes the registered data does
+// not cover, so CJK text no longer requires registering a CJK font.
 func (a *App) RegisterFont(name string, data []byte) error {
 	if name == "" {
 		return errors.New("ui: register font: empty name")
@@ -366,8 +366,8 @@ func (a *App) RegisterFont(name string, data []byte) error {
 
 // createDefaultFace builds the shared text face from the data registered
 // under DefaultFont, falling back to the built-in GoRegular. The face
-// shapes with HarfBuzz on Linux (see internal/text) and covers missing
-// runes from system fonts automatically.
+// shapes with HarfBuzz on Linux (see internal/text). Missing runes are
+// covered from system fonts on Linux and Windows.
 func (a *App) createDefaultFace() (*text.Face, error) {
 	return text.NewFace(a.defaultFontData(), defaultFontSize)
 }

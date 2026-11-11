@@ -223,6 +223,9 @@ func TestComplexLabelAndTextAreaDrawing(t *testing.T) {
 	})
 
 	t.Run("textarea paints every line and rtl selection spans correctly", func(t *testing.T) {
+		if text.ShapingEngine() != "harfbuzz" {
+			t.Skip("RTL selection geometry requires the HarfBuzz shaper")
+		}
 		face := testFace(t)
 		area := TextArea(nil)
 		area.SetValue("abc\n\u0645\u0631\u062D\u0628\u0627\nend")

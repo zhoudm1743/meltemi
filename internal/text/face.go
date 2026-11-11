@@ -148,6 +148,9 @@ type Face struct {
 	derive func(scale float64) (font.Face, error)
 
 	derived map[float64]font.Face
+	// fallback caches system-font faces used when the primary font has no
+	// glyph. They are closed with order.
+	fallback map[string]font.Face
 	// order records face creation order (base first) so Close can release
 	// in reverse.
 	order []font.Face
@@ -158,8 +161,9 @@ type Face struct {
 // not a usable font or the size is not positive. On Linux with cgo the face
 // shapes with HarfBuzz and rasterizes by glyph ID with FreeType, falling back
 // to system fonts through fontconfig for runes the primary font does not
-// cover; other builds keep the legacy x/image engine with the same public
-// behavior for Latin text and no system fallback.
+// cover. Windows keeps the legacy x/image engine and, when a system font
+// covers the rune, falls back to that font for the same missing-glyph
+// case. Other builds keep the legacy engine with no system fallback.
 func NewFace(data []byte, size float64) (*Face, error) {
 	if size <= 0 {
 		return nil, fmt.Errorf("text: font size %v is not positive", size)
@@ -219,7 +223,7 @@ func (f *Face) CaretOffsets(value string) ([]fixed.Int26_6, error) {
 		}
 		return layout.CaretOffsets, nil
 	}
-	return legacyCaretOffsets(f.face, value), nil
+	return legacyCaretOffsets(f.face, f.legacyPick(f.face, f.size), value), nil
 }
 
 // Layout shapes one line of text and returns the bitmap plus the cluster,
@@ -267,7 +271,7 @@ func (f *Face) Rasterize(value string) (Bitmap, error) {
 		}
 		return layout.Bitmap, nil
 	}
-	return rasterize(f.face, value, 1, 1, 1), nil
+	return rasterize(f.face, f.legacyPick(f.face, f.size), value, 1, 1, 1), nil
 }
 
 // RasterizeScaled draws one line of text at a physical resolution of scaleX
@@ -306,7 +310,7 @@ func (f *Face) RasterizeScaled(value string, scaleX, scaleY float64) (Bitmap, er
 	if err != nil {
 		return Bitmap{}, err
 	}
-	return rasterize(physical, value, scaleX/scaleY, scaleX, scaleY), nil
+	return rasterize(physical, f.legacyPick(physical, f.size*scaleY), value, scaleX/scaleY, scaleX, scaleY), nil
 }
 
 // scaledFace returns the cached physical face for the given vertical scale,
@@ -359,24 +363,27 @@ func scaleXFixed(v fixed.Int26_6, xRatio float64) fixed.Int26_6 {
 // scale ratio applied to the pen; scaleX and scaleY convert the physical
 // result back into the logical geometry carried by the Bitmap. The caller
 // validates the face and the empty string.
-func rasterize(f font.Face, value string, xRatio, scaleX, scaleY float64) Bitmap {
-	metrics := f.Metrics()
+func rasterize(primary font.Face, pick func(rune) font.Face, value string, xRatio, scaleX, scaleY float64) Bitmap {
+	metrics := primary.Metrics()
 
 	// Pass 1 walks the pen and unions the glyph rects at those actual pen
 	// positions, so ink that overhangs a glyph's advance is covered no
 	// matter where in the string the glyph sits. The vertical box
 	// additionally covers the ascent/descent so blank glyphs (spaces) keep
-	// the line height.
+	// the line height. pick, when set, supplies a fallback face for runes
+	// the primary face does not cover; kerning applies only inside one face.
 	x0, x1 := 0, 0
 	y0, y1 := -metrics.Ascent.Ceil(), metrics.Descent.Ceil()
 	pos := fixed.Int26_6(0)
 	prev := rune(-1)
+	var prevFace font.Face
 	for i := 0; i < len(value); {
 		r, w := utf8.DecodeRuneInString(value[i:])
-		if prev >= 0 {
-			pos += scaleXFixed(f.Kern(prev, r), xRatio)
+		face := faceAt(primary, pick, r)
+		if prev >= 0 && prevFace == face {
+			pos += scaleXFixed(face.Kern(prev, r), xRatio)
 		}
-		dr, _, _, adv, _ := f.Glyph(fixed.Point26_6{X: pos, Y: 0}, r)
+		dr, _, _, adv, _ := face.Glyph(fixed.Point26_6{X: pos, Y: 0}, r)
 		if !dr.Empty() {
 			x0 = min(x0, dr.Min.X)
 			x1 = max(x1, dr.Max.X)
@@ -385,6 +392,7 @@ func rasterize(f font.Face, value string, xRatio, scaleX, scaleY float64) Bitmap
 		}
 		pos += scaleXFixed(adv, xRatio)
 		prev = r
+		prevFace = face
 		i += w
 	}
 	x1 = max(x1, pos.Ceil())
@@ -406,12 +414,14 @@ func rasterize(f font.Face, value string, xRatio, scaleX, scaleY float64) Bitmap
 	var glyphs []Glyph
 	pen := dot
 	prev = rune(-1)
+	prevFace = nil
 	for i := 0; i < len(value); {
 		r, w := utf8.DecodeRuneInString(value[i:])
-		if prev >= 0 {
-			pen.X += scaleXFixed(f.Kern(prev, r), xRatio)
+		face := faceAt(primary, pick, r)
+		if prev >= 0 && prevFace == face {
+			pen.X += scaleXFixed(face.Kern(prev, r), xRatio)
 		}
-		dr, mask, maskp, adv, ok := f.Glyph(pen, r)
+		dr, mask, maskp, adv, ok := face.Glyph(pen, r)
 		glyphs = append(glyphs, Glyph{
 			Rune:    r,
 			X:       dr.Min.X,
@@ -425,6 +435,7 @@ func rasterize(f font.Face, value string, xRatio, scaleX, scaleY float64) Bitmap
 		}
 		pen.X += scaleXFixed(adv, xRatio)
 		prev = r
+		prevFace = face
 		i += w
 	}
 
@@ -466,6 +477,7 @@ func (f *Face) Close() error {
 	}
 	f.face = nil
 	f.derived = nil
+	f.fallback = nil
 	f.order = nil
 	return err
 }

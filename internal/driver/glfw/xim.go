@@ -1,38 +1,10 @@
 package glfw
 
-/*
-#cgo LDFLAGS: -lX11
-#include <X11/Xlib.h>
-#include <X11/XKBlib.h>
-
-static unsigned long windX11KeySym(void *display, int scancode, unsigned int state) {
-	Display *dpy = (Display *)display;
-	if (dpy == NULL || scancode < 0 || scancode > 255) {
-		return NoSymbol;
-	}
-	XkbStateRec keyboard;
-	int group = 0;
-	if (XkbGetState(dpy, XkbUseCoreKbd, &keyboard) == Success) {
-		group = keyboard.group;
-	}
-	unsigned int consumed = 0;
-	KeySym keysym = NoSymbol;
-	unsigned int coreState = XkbBuildCoreState(state, group);
-	if (!XkbLookupKeySym(dpy, (KeyCode)scancode, coreState, &consumed, &keysym)) {
-		return NoSymbol;
-	}
-	return keysym;
-}
-*/
-import "C"
-
 import (
-	"context"
 	"fmt"
 	"log"
 	"os"
 	"time"
-	"unsafe"
 
 	glfw3 "github.com/go-gl/glfw/v3.3/glfw"
 
@@ -48,10 +20,6 @@ type ximClient interface {
 	SetSpot(x, y, width, height int) error
 	ProcessKeyEvent(keyval, keycode, state uint32, isRelease bool, time uint32) (bool, error)
 	Close() error
-}
-
-func newDBusXIMClient() (ximClient, error) {
-	return xim.NewClient(context.Background(), "meltemi", os.Getenv("DISPLAY"))
 }
 
 func (b *Backend) reportXIMError(operation string, err error) {
@@ -87,6 +55,13 @@ func (b *Backend) initXIM() error {
 	if err != nil {
 		b.imeEnabled = false
 		return err
+	}
+	// A nil client means this platform has no composition backend. Committed
+	// Unicode, including IME results GLFW turns into char events, still flows
+	// through the ordinary key path. Preedit stays inactive.
+	if client == nil {
+		b.imeEnabled = false
+		return nil
 	}
 	b.initialXIM = client
 	return nil
@@ -135,14 +110,6 @@ func ximState(mods glfw3.ModifierKey) uint32 {
 		state |= 1 << 6
 	}
 	return state
-}
-
-func x11KeySym(scancode int, mods glfw3.ModifierKey) uint32 {
-	return uint32(C.windX11KeySym(
-		unsafe.Pointer(glfw3.GetX11Display()),
-		C.int(scancode),
-		C.uint(ximState(mods)),
-	))
 }
 
 func (w *Window) keySymForEvent(scancode int, action glfw3.Action, mods glfw3.ModifierKey) uint32 {

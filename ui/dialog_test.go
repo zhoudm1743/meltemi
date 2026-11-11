@@ -3,6 +3,7 @@ package ui
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -11,6 +12,20 @@ import (
 
 	"github.com/zhoudm1743/meltemi/internal/desktop"
 )
+
+// dialogAbs returns an absolute directory or file path. Unix /tmp is not
+// absolute on Windows, and a drive path is not absolute on Linux.
+func dialogAbs(t *testing.T, name string) string {
+	t.Helper()
+	dir, err := filepath.Abs(t.TempDir())
+	if err != nil {
+		t.Fatalf("absolute temp dir: %v", err)
+	}
+	if name == "" {
+		return dir
+	}
+	return filepath.Join(dir, name)
+}
 
 // fakeDialogRequest simulates one in-flight portal request. respond invokes
 // the service-level callback directly and is deliberately NOT once-guarded:
@@ -146,6 +161,9 @@ func TestPublicOpenSaveDialogLifecycle(t *testing.T) {
 		}}
 		current := &FileFilter{Name: "Current", Patterns: []FileFilterPattern{{Kind: FileFilterPatternGlob, Pattern: "*.md"}}}
 		parent := a.Window("dialog-parent")
+		folder := dialogAbs(t, "")
+		fileA := dialogAbs(t, "a.txt")
+		fileB := dialogAbs(t, "b.txt")
 
 		if err := a.Post(func() {
 			uiID = uiGoroutineID()
@@ -156,7 +174,7 @@ func TestPublicOpenSaveDialogLifecycle(t *testing.T) {
 				Multiple:      true,
 				Filters:       filters,
 				CurrentFilter: current,
-				CurrentFolder: "/tmp",
+				CurrentFolder: folder,
 				Parent:        parent,
 			}, func(paths []string, err error) {
 				callbacks++
@@ -176,7 +194,7 @@ func TestPublicOpenSaveDialogLifecycle(t *testing.T) {
 			// Mutating the caller's filters after the call must not leak into
 			// the request: the public layer snapshots options.
 			filters[0].Patterns[0].Pattern = "MUTATED"
-			fake.lastOpenRequest(t).respond(desktop.DialogResult{Paths: []string{"/tmp/a.txt", "/tmp/b.txt"}}, nil)
+			fake.lastOpenRequest(t).respond(desktop.DialogResult{Paths: []string{fileA, fileB}}, nil)
 		}); err != nil {
 			t.Fatalf("Post OpenFile step: %v", err)
 		}
@@ -190,7 +208,7 @@ func TestPublicOpenSaveDialogLifecycle(t *testing.T) {
 		if gotErr != nil {
 			t.Fatalf("callback error = %v, want nil", gotErr)
 		}
-		if want := []string{"/tmp/a.txt", "/tmp/b.txt"}; strings.Join(gotPaths, ",") != strings.Join(want, ",") {
+		if want := []string{fileA, fileB}; strings.Join(gotPaths, ",") != strings.Join(want, ",") {
 			t.Errorf("callback paths = %v, want %v", gotPaths, want)
 		}
 		if callbacks != 1 {
@@ -212,8 +230,8 @@ func TestPublicOpenSaveDialogLifecycle(t *testing.T) {
 		if options.Directory {
 			t.Error("Directory set on an OpenFile without Directory requested")
 		}
-		if options.CurrentFolder != "/tmp" {
-			t.Errorf("CurrentFolder = %q, want /tmp", options.CurrentFolder)
+		if options.CurrentFolder != folder {
+			t.Errorf("CurrentFolder = %q, want %q", options.CurrentFolder, folder)
 		}
 		if options.ParentWindow != "" {
 			t.Errorf("ParentWindow = %q, want empty: the current X11 backend cannot declare a portal parent", options.ParentWindow)
@@ -244,10 +262,12 @@ func TestPublicOpenSaveDialogLifecycle(t *testing.T) {
 		var gotPath string
 		var gotErr error
 		callbacks := 0
+		folder := dialogAbs(t, "")
+		notes := dialogAbs(t, "notes.txt")
 		if err := a.Post(func() {
 			_, err := a.SaveFile(SaveFileOptions{
 				Title:         "Save as",
-				CurrentFolder: "/tmp",
+				CurrentFolder: folder,
 				CurrentName:   "notes.txt",
 			}, func(path string, err error) {
 				callbacks++
@@ -266,7 +286,7 @@ func TestPublicOpenSaveDialogLifecycle(t *testing.T) {
 				a.Quit()
 				return
 			}
-			requests[0].respond(desktop.DialogResult{Paths: []string{"/tmp/notes.txt"}}, nil)
+			requests[0].respond(desktop.DialogResult{Paths: []string{notes}}, nil)
 		}); err != nil {
 			t.Fatalf("Post SaveFile step: %v", err)
 		}
@@ -280,8 +300,8 @@ func TestPublicOpenSaveDialogLifecycle(t *testing.T) {
 		if gotErr != nil {
 			t.Fatalf("callback error = %v, want nil", gotErr)
 		}
-		if gotPath != "/tmp/notes.txt" {
-			t.Errorf("callback path = %q, want /tmp/notes.txt", gotPath)
+		if gotPath != notes {
+			t.Errorf("callback path = %q, want %q", gotPath, notes)
 		}
 		if callbacks != 1 {
 			t.Errorf("callback count = %d, want 1", callbacks)
@@ -292,7 +312,7 @@ func TestPublicOpenSaveDialogLifecycle(t *testing.T) {
 			t.Fatalf("service Save calls = %d, want 1", len(fake.saves))
 		}
 		options := fake.saves[0]
-		if options.Title != "Save as" || options.CurrentFolder != "/tmp" || options.CurrentName != "notes.txt" {
+		if options.Title != "Save as" || options.CurrentFolder != folder || options.CurrentName != "notes.txt" {
 			t.Errorf("converted save options = %+v, want title/folder/name preserved", options)
 		}
 		if options.Multiple || options.Directory {
@@ -640,8 +660,8 @@ func TestDialogCapabilityAndValidation(t *testing.T) {
 			t.Error("SaveFile with a relative CurrentFile: nil error")
 		}
 		if _, err := a.SaveFile(SaveFileOptions{
-			CurrentFolder: "/tmp",
-			CurrentFile:   "/tmp/absolute.txt",
+			CurrentFolder: dialogAbs(t, ""),
+			CurrentFile:   dialogAbs(t, "absolute.txt"),
 			Filters:       []FileFilter{{Name: "Any", Patterns: []FileFilterPattern{{Kind: FileFilterPatternGlob, Pattern: "*"}}}},
 		}, func(_ string, _ error) {}); err != nil {
 			t.Errorf("SaveFile with valid absolute options: %v", err)

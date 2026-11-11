@@ -9,9 +9,9 @@ type Capabilities struct {
 }
 
 // Capabilities queries the current platform. MenuBar is the window-local,
-// self-drawn menu bar; Tray requires a running StatusNotifierWatcher on Linux;
-// FileDialog requires the XDG desktop portal FileChooser backend (Linux only
-// for now).
+// self-drawn menu bar. Tray is a StatusNotifierWatcher on Linux and the
+// notification area on Windows. FileDialog is the XDG portal on Linux and
+// the system file dialog on Windows.
 func (a *App) Capabilities() Capabilities {
 	capabilities := Capabilities{MenuBar: true}
 	if a == nil {

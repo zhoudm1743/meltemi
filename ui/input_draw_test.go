@@ -508,6 +508,9 @@ func TestComplexClusterEditingAndHitTesting(t *testing.T) {
 	})
 
 	t.Run("rtl caret follows logical order with visual offsets", func(t *testing.T) {
+		if text.ShapingEngine() != "harfbuzz" {
+			t.Skip("RTL caret geometry requires the HarfBuzz shaper")
+		}
 		const value = "abc \u0645\u0631\u062D\u0628\u0627" // "abc مرحبا"
 		input := Input(nil)
 		input.SetValue(value)
@@ -663,6 +666,9 @@ func TestComplexTextSelectionAndUndo(t *testing.T) {
 	})
 
 	t.Run("rtl selection rectangle spans visual extents", func(t *testing.T) {
+		if text.ShapingEngine() != "harfbuzz" {
+			t.Skip("RTL selection geometry requires the HarfBuzz shaper")
+		}
 		const value = "abc \u0645\u0631\u062D\u0628\u0627"
 		input := Input(nil)
 		input.SetValue(value)

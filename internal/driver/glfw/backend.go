@@ -12,6 +12,7 @@ package glfw
 
 import (
 	"fmt"
+	"runtime"
 	"sync"
 
 	glfw3 "github.com/go-gl/glfw/v3.3/glfw"
@@ -92,7 +93,14 @@ func (b *Backend) NewWindow(cfg driver.Config) (driver.Window, error) {
 	glfw3.WindowHint(glfw3.ContextVersionMajor, 3)
 	glfw3.WindowHint(glfw3.ContextVersionMinor, 3)
 	glfw3.WindowHint(glfw3.OpenGLProfile, glfw3.OpenGLCoreProfile)
-	glfw3.WindowHint(glfw3.OpenGLForwardCompatible, glfw3.True)
+	// Forward-compatible contexts drop deprecated GL entry points. macOS
+	// requires that for a 3.3 core profile; Windows drivers often reject it.
+	// Linux keeps the hint this backend has always set.
+	forward := glfw3.True
+	if runtime.GOOS == "windows" {
+		forward = glfw3.False
+	}
+	glfw3.WindowHint(glfw3.OpenGLForwardCompatible, forward)
 	win, err := glfw3.CreateWindow(cfg.Size.Width, cfg.Size.Height, cfg.Title, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("glfw: create window: %w", err)
@@ -110,7 +118,9 @@ func (b *Backend) NewWindow(cfg driver.Config) (driver.Window, error) {
 				return nil, fmt.Errorf("glfw: create IME client: %w", err)
 			}
 		}
-		w.attachXIM(client)
+		if client != nil {
+			w.attachXIM(client)
+		}
 	}
 	if b.windows == nil {
 		b.windows = make(map[*Window]struct{})

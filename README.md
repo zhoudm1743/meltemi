@@ -9,7 +9,7 @@ Meltemi 是一个使用 Go 编写的原生桌面 UI 库，目标是提供简洁�
 - 使用 HarfBuzz + FreeType 处理复杂文本
 - 通过 D-Bus 接入 Linux 桌面能力
 
-项目当前完成了阶段 0–2 的主要功能：**Linux 基础能力、窗口与组件、菜单与托盘、文件对话框、高 DPI、复杂文本和渲染缓存**。Windows、macOS 和其他 Linux 显示协议仍需后续实现与验证。
+项目当前完成了阶段 0–2 的主要功能：**Linux 基础能力、窗口与组件、菜单与托盘、文件对话框、高 DPI、复杂文本和渲染缓存**。Windows 已能创建 GLFW 窗口、使用系统文件对话框和通知区域托盘，并用系统字体回退绘制缺字；macOS、Wayland，以及 Windows 上的 HarfBuzz 整形和输入法预编辑仍需后续实现与验证。
 
 ## 当前能力
 
@@ -33,11 +33,10 @@ Meltemi 仍处在活跃开发阶段，公共 API 可能继续调整。
 ### 必需
 
 - Go 1.26 或兼容版本
-- Linux / X11
-- cgo、C 编译器和 `pkg-config`
+- cgo 和 C 编译器
 - OpenGL 3.3 兼容驱动
-- HarfBuzz、FreeType、fontconfig
-- 可用的 D-Bus session bus
+
+Linux / X11 还需要 `pkg-config`、HarfBuzz、FreeType、fontconfig 和可用的 D-Bus session bus。
 
 在 Debian / Deepin 等系统上，可按实际包管理器安装依赖，例如：
 
@@ -49,11 +48,13 @@ sudo apt install \
 
 不同发行版的包名可能不同。当前代码不要求安装系统 GLFW 开发包。
 
+Windows 使用同一套 GLFW / OpenGL 窗口。需要 MinGW-w64 gcc（POSIX 线程、UCRT）在 `PATH` 上，并且 `CGO_ENABLED=1`。不需要 HarfBuzz、FreeType、fontconfig 或 D-Bus。缺字回退到系统字体（例如微软雅黑）；整形仍是 legacy 引擎，不是 HarfBuzz。文件对话框走系统 `IFileDialog`，托盘走通知区域。已提交的输入法文本会经 GLFW 字符事件进入，预编辑和候选框定位尚未实现。
+
 ### 可选桌面能力
 
-- 中文输入：Fcitx 5，目前主要验证 rime 引擎
-- 文件对话框：运行中的 `org.freedesktop.portal.Desktop`
-- 托盘：可用的 StatusNotifierWatcher，具体表现取决于桌面环境
+- 中文输入：Linux 上为 Fcitx 5，目前主要验证 rime 引擎
+- 文件对话框：Linux 上需要运行中的 `org.freedesktop.portal.Desktop`；Windows 使用系统对话框
+- 托盘：Linux 上需要可用的 StatusNotifierWatcher；Windows 使用通知区域
 
 不支持的能力会通过能力查询或错误返回，不会静默假装成功。
 
@@ -270,7 +271,8 @@ MELTEMI_GLFW_DESKTOP_TESTS=1 go run ./cmd/meltemi-ime --smoke
 | Wayland | 未验证 |
 | Fcitx 5 rime | 已验证输入与资源生命周期 |
 | IBus / 其他输入法 | 未验证 |
-| Windows / macOS | 尚未完成后端与平台服务 |
+| Windows 10 amd64 | 窗口、系统文件对话框、通知区域托盘和系统字体回退已有自动化验证；HarfBuzz 与输入法预编辑未实现 |
+| macOS | 尚未完成后端与平台服务 |
 
 详细证据、验证命令和限制见 [doc/兼容性.md](doc/兼容性.md)，架构与阶段规划见 [doc/总体设计.md](doc/总体设计.md)。
 

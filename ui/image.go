@@ -38,12 +38,12 @@ func Image(source image.Image) *ImageWidget {
 func LoadImage(path string) (*ImageWidget, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("ui: load image %q: %w", path, err)
+		return nil, fmt.Errorf("ui: load image %s: %w", path, err)
 	}
 	defer file.Close()
 	source, _, err := image.Decode(file)
 	if err != nil {
-		return nil, fmt.Errorf("ui: load image %q: %w", path, err)
+		return nil, fmt.Errorf("ui: load image %s: %w", path, err)
 	}
 	return Image(source), nil
 }

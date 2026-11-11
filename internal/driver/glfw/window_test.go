@@ -39,20 +39,24 @@ func TestWindowConfigurationAndNativeEvents(t *testing.T) {
 	if native.hidden {
 		t.Fatal("Show did not mark the native window visible")
 	}
+	// Hide and Show can emit focus events on Windows. The assertions below
+	// cover only the callbacks this test invokes after that.
+	baseline := len(events)
 	sizeCallback(native.win, 321, 234)
 	focusCallback(native.win, true)
 	focusCallback(native.win, false)
-	if len(events) != 3 {
-		t.Fatalf("native events = %v, want resize and two focus events", events)
+	got := events[baseline:]
+	if len(got) != 3 {
+		t.Fatalf("native events = %v, want resize and two focus events", got)
 	}
-	if events[0].Kind != driver.EventResize || events[0].Size != (driver.Size{Width: 321, Height: 234}) {
-		t.Errorf("resize event = %+v, want 321x234 EventResize", events[0])
+	if got[0].Kind != driver.EventResize || got[0].Size != (driver.Size{Width: 321, Height: 234}) {
+		t.Errorf("resize event = %+v, want 321x234 EventResize", got[0])
 	}
-	if events[1].Kind != driver.EventFocus || !events[1].Focused || events[1].Window != win {
-		t.Errorf("focus-gained event = %+v, want focused EventFocus for this window", events[1])
+	if got[1].Kind != driver.EventFocus || !got[1].Focused || got[1].Window != win {
+		t.Errorf("focus-gained event = %+v, want focused EventFocus for this window", got[1])
 	}
-	if events[2].Kind != driver.EventFocus || events[2].Focused {
-		t.Errorf("focus-lost event = %+v, want unfocused EventFocus", events[2])
+	if got[2].Kind != driver.EventFocus || got[2].Focused {
+		t.Errorf("focus-lost event = %+v, want unfocused EventFocus", got[2])
 	}
 
 	win.Destroy()
@@ -61,8 +65,8 @@ func TestWindowConfigurationAndNativeEvents(t *testing.T) {
 	win.Hide()
 	sizeCallback(native.win, 1, 1)
 	focusCallback(native.win, true)
-	if len(events) != 3 {
-		t.Fatalf("destroyed window emitted stale events: %v", events[3:])
+	if len(events) != baseline+3 {
+		t.Fatalf("destroyed window emitted stale events: %v", events[baseline+3:])
 	}
 	if previous := native.win.SetSizeCallback(nil); previous != nil {
 		t.Error("Destroy did not clear the GLFW size callback")
