@@ -44,21 +44,21 @@ func (f *Face) legacyPick(primary font.Face, size float64) func(rune) font.Face 
 }
 
 func (f *Face) fallbackFace(r rune, size float64) font.Face {
-	path, err := lookupSystemFont(r)
-	if err != nil || path == "" {
+	ref, err := lookupSystemFont(r)
+	if err != nil || ref.Path == "" {
 		return nil
 	}
-	key := path + "\x00" + strconv.FormatFloat(size, 'g', -1, 64)
+	key := ref.Path + "\x00" + strconv.FormatFloat(size, 'g', -1, 64)
 	if f.fallback != nil {
 		if face, ok := f.fallback[key]; ok {
 			return face
 		}
 	}
-	data, err := readFontFile(path)
+	data, err := readFontFile(ref.Path)
 	if err != nil {
 		return nil
 	}
-	parsed, err := fontCoveringRune(path, data, r)
+	parsed, err := fontCoveringRune(ref.Path, data, r)
 	if err != nil || parsed == nil {
 		return nil
 	}

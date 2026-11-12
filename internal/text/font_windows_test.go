@@ -24,7 +24,11 @@ func TestWindowsCJKFallbackChangesAdvance(t *testing.T) {
 
 	orig := systemFontPath
 	systemFontPath = nil
-	t.Cleanup(func() { systemFontPath = orig })
+	// The pure-Go engine also has a fontscan index; disable every fallback
+	// source so the "plain" face really draws notdef.
+	origScan := fontScanLookup
+	fontScanLookup = nil
+	t.Cleanup(func() { systemFontPath = orig; fontScanLookup = origScan })
 	plain, err := NewFace(goregular.TTF, 16)
 	if err != nil {
 		t.Fatalf("NewFace without fallback: %v", err)

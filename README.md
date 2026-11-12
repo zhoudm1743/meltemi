@@ -6,10 +6,10 @@ Meltemi 是一个使用 Go 编写的原生桌面 UI 库，目标是提供简洁�
 - 不使用 WebView、HTML、JavaScript 或浏览器布局引擎
 - 使用 GLFW + OpenGL 创建窗口并自绘组件
 - 使用 CSS 风格的子集描述组件外观
-- 使用 HarfBuzz + FreeType 处理复杂文本
+- 使用 go-text/typesetting 纯 Go 文本栈处理复杂文本（cgo HarfBuzz/FreeType 为 opt-in 对照）
 - 通过 D-Bus 接入 Linux 桌面能力
 
-项目当前完成了阶段 0–2 的主要功能：**Linux 基础能力、窗口与组件、菜单与托盘、文件对话框、高 DPI、复杂文本和渲染缓存**。Windows 已能创建 GLFW 窗口、使用系统文件对话框和通知区域托盘，并用系统字体回退绘制缺字；macOS、Wayland，以及 Windows 上的 HarfBuzz 整形和输入法预编辑仍需后续实现与验证。
+项目当前完成了阶段 0–2 的主要功能：**Linux 基础能力、窗口与组件、菜单与托盘、文件对话框、高 DPI、复杂文本和渲染缓存**。Windows 已能创建 GLFW 窗口、使用系统文件对话框和通知区域托盘，并用系统字体回退绘制缺字。Windows 的复杂文本整形已由纯 Go 引擎支持；macOS、Wayland 以及 Windows 输入法预编辑仍需后续实现与验证。
 
 ## 当前能力
 
@@ -23,7 +23,7 @@ Meltemi 是一个使用 Go 编写的原生桌面 UI 库，目标是提供简洁�
 - 单行和多行编辑、选择、撤销/重做、词级导航、剪贴板
 - Fcitx D-Bus 输入法预编辑和候选位置同步
 - CSS 类型、ID、class、状态选择器，以及颜色、边框、圆角、字体、尺寸和透明度
-- HarfBuzz 整形、双向文本、组合字符和系统字体回退
+- 纯 Go 复杂文本整形（go-text/typesetting）、双向文本、组合字符和系统字体回退
 - 物理像素文本光栅化与每窗口有界文本纹理缓存
 
 Meltemi 仍处在活跃开发阶段，公共 API 可能继续调整。
@@ -36,19 +36,19 @@ Meltemi 仍处在活跃开发阶段，公共 API 可能继续调整。
 - cgo 和 C 编译器
 - OpenGL 3.3 兼容驱动
 
-Linux / X11 还需要 `pkg-config`、HarfBuzz、FreeType、fontconfig 和可用的 D-Bus session bus。
+Linux / X11 还需要 `pkg-config`、OpenGL/X11 开发库和可用的 D-Bus session bus。默认文本栈不需要 HarfBuzz、FreeType 或 fontconfig；cgo HarfBuzz 对照路径才需要。
 
 在 Debian / Deepin 等系统上，可按实际包管理器安装依赖，例如：
 
 ```bash
 sudo apt install \
   build-essential pkg-config xorg-dev libgl1-mesa-dev \
-  libharfbuzz-dev libfreetype-dev libfontconfig-dev libdbus-1-dev
+  libdbus-1-dev
 ```
 
 不同发行版的包名可能不同。当前代码不要求安装系统 GLFW 开发包。
 
-Windows 使用同一套 GLFW / OpenGL 窗口。需要 MinGW-w64 gcc（POSIX 线程、UCRT）在 `PATH` 上，并且 `CGO_ENABLED=1`。不需要 HarfBuzz、FreeType、fontconfig 或 D-Bus。缺字回退到系统字体（例如微软雅黑）；整形仍是 legacy 引擎，不是 HarfBuzz。文件对话框走系统 `IFileDialog`，托盘走通知区域。已提交的输入法文本会经 GLFW 字符事件进入，预编辑和候选框定位尚未实现。
+Windows 使用同一套 GLFW / OpenGL 窗口。需要 MinGW-w64 gcc（POSIX 线程、UCRT）在 `PATH` 上，并且 `CGO_ENABLED=1`（GLFW/OpenGL 仍走 cgo）。默认文本栈是纯 Go（go-text/typesetting）+ 系统字体回退，不需要 HarfBuzz、FreeType、fontconfig 或 D-Bus；如需 cgo HarfBuzz 对照，使用 `-tags meltemi_text_cgo` 并自行提供 HarfBuzz/FreeType 静态库。文件对话框走系统 `IFileDialog`，托盘走通知区域。已提交的输入法文本会经 GLFW 字符事件进入，预编辑和候选框定位尚未实现。
 
 ### 可选桌面能力
 
@@ -231,7 +231,7 @@ _ = dialog // 可通过 dialog.Close() 主动取消
 | `go run ./cmd/meltemi-frameless` | 无边框窗口与自绘标题栏 |
 | `go run ./cmd/meltemi-ime` | Fcitx 输入法和组合输入生命周期 |
 
-部分演示支持 `--font /path/to/font.otf` 指定主字体。未提供中文字体时，也会尝试通过 fontconfig 查找系统回退字体。
+部分演示支持 `--font /path/to/font.otf` 指定主字体。未提供中文字体时，会通过纯 Go 的 fontscan 或平台字体候选查找系统回退字体。
 
 ## 测试与验证
 
@@ -271,7 +271,7 @@ MELTEMI_GLFW_DESKTOP_TESTS=1 go run ./cmd/meltemi-ime --smoke
 | Wayland | 未验证 |
 | Fcitx 5 rime | 已验证输入与资源生命周期 |
 | IBus / 其他输入法 | 未验证 |
-| Windows 10 amd64 | 窗口、系统文件对话框、通知区域托盘和系统字体回退已有自动化验证；HarfBuzz 与输入法预编辑未实现 |
+| Windows 10 amd64 | 窗口、系统文件对话框、通知区域托盘和系统字体回退已有自动化验证；纯 Go 复杂文本整形（连字、RTL、CJK 回退）已通过自动化验证，输入法预编辑未实现 |
 | macOS | 尚未完成后端与平台服务 |
 
 详细证据、验证命令和限制见 [doc/兼容性.md](doc/兼容性.md)，架构与阶段规划见 [doc/总体设计.md](doc/总体设计.md)。

@@ -1,13 +1,13 @@
-//go:build linux && cgo
+//go:build (linux || windows) && cgo && meltemi_text_cgo
 
 package text
 
 // HarfBuzz shaping engine: itemizes text into font runs (primary vs
-// fontconfig fallback) and direction runs, shapes each run with HarfBuzz
-// and assembles the visual line. FreeType owns the font data and rasterizes
-// glyphs by ID (raster_linux_cgo.go); fontconfig only resolves runes to
-// font paths (fontconfig_linux_cgo.go), whose bytes fallback.go reads and
-// caches.
+// system fallback) and direction runs, shapes each run with HarfBuzz and
+// assembles the visual line. FreeType owns the font data and rasterizes
+// glyphs by ID (raster_freetype_cgo.go). On Linux fontconfig resolves runes
+// to font paths (fontconfig_linux_cgo.go); on Windows the Windows font
+// candidates in font_windows.go do. fallback.go reads and caches the bytes.
 //
 // Every engine owns its FreeType face and HarfBuzz font and destroys them
 // in that order; the shaper tracks creation order and releases everything
@@ -15,7 +15,9 @@ package text
 // destroys itself and nothing is cached.
 
 /*
-#cgo pkg-config: harfbuzz freetype2
+#cgo linux pkg-config: harfbuzz freetype2
+#cgo windows CFLAGS: -I${SRCDIR}/../../third_party/windows-text/include/harfbuzz -I${SRCDIR}/../../third_party/windows-text/include/freetype2
+#cgo windows LDFLAGS: -L${SRCDIR}/../../third_party/windows-text/lib -lharfbuzz -lfreetype -lstdc++ -lm
 #include <stdlib.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
@@ -64,12 +66,16 @@ type hbEngine struct {
 	scale float64
 }
 
-// newHBEngine opens data at size*scale. From the first successful C
-// allocation every failure destroys what was already created, so the engine
-// never leaks and the caller never receives a half-built face.
-func newHBEngine(data []byte, size, scale float64) (*hbEngine, error) {
+// newHBEngine opens data at size*scale. faceIndex selects the face inside a
+// collection (TTC/OTC); it is 0 for single-font files. From the first
+// successful C allocation every failure destroys what was already created, so
+// the engine never leaks and the caller never receives a half-built face.
+func newHBEngine(data []byte, size, scale float64, faceIndex int) (*hbEngine, error) {
 	if len(data) == 0 {
 		return nil, errors.New("text: empty font data")
+	}
+	if faceIndex < 0 {
+		return nil, fmt.Errorf("text: invalid face index %d", faceIndex)
 	}
 	lib, err := ftLib()
 	if err != nil {
@@ -79,8 +85,8 @@ func newHBEngine(data []byte, size, scale float64) (*hbEngine, error) {
 		return nil, fmt.Errorf("text: invalid engine size %v scale %v", size, scale)
 	}
 	e := &hbEngine{data: data, scale: scale}
-	if C.FT_New_Memory_Face(lib, (*C.FT_Byte)(unsafe.Pointer(&data[0])), C.FT_Long(len(data)), 0, &e.face) != 0 {
-		return nil, errors.New("text: freetype cannot load font data")
+	if C.FT_New_Memory_Face(lib, (*C.FT_Byte)(unsafe.Pointer(&data[0])), C.FT_Long(len(data)), C.FT_Long(faceIndex), &e.face) != 0 {
+		return nil, fmt.Errorf("text: freetype cannot load face %d of font data", faceIndex)
 	}
 	// The engine owns C resources from here on; destroy balances it.
 	liveEngines.Add(1)
@@ -223,15 +229,15 @@ type hbShaper struct {
 	size     float64
 	base     *hbEngine
 	derived  map[float64]*hbEngine
-	fallback map[string]map[float64]*hbEngine // path → scale → engine
-	order    []*hbEngine                      // creation order, base first
+	fallback map[FontRef]map[float64]*hbEngine // face → scale → engine
+	order    []*hbEngine                       // creation order, base first
 	resolver *fallbackResolver
 	closed   bool
 }
 
 func newHBShaper(data []byte, size float64) (complexShaper, error) {
 	owned := bytes.Clone(data)
-	base, err := newHBEngine(owned, size, 1)
+	base, err := newHBEngine(owned, size, 1, 0)
 	if err != nil {
 		return nil, fmt.Errorf("text: create shaper: %w", err)
 	}
@@ -244,7 +250,10 @@ func newHBShaper(data []byte, size float64) (complexShaper, error) {
 	}, nil
 }
 
-func init() { newComplexShaper = newHBShaper }
+func init() {
+	newComplexShaper = newHBShaper
+	shapingEngineName = "harfbuzz-cgo"
+}
 
 // engine returns the primary engine at the given vertical scale, deriving
 // and caching it on first use; scale 1 is the base engine.
@@ -255,7 +264,7 @@ func (s *hbShaper) engine(scale float64) (*hbEngine, error) {
 	if e, ok := s.derived[scale]; ok {
 		return e, nil
 	}
-	e, err := newHBEngine(s.data, s.size, scale)
+	e, err := newHBEngine(s.data, s.size, scale, 0)
 	if err != nil {
 		return nil, fmt.Errorf("text: derive physical face at scale %v: %w", scale, err)
 	}
@@ -267,31 +276,31 @@ func (s *hbShaper) engine(scale float64) (*hbEngine, error) {
 	return e, nil
 }
 
-// fallbackEngine returns the engine for a resolved fallback font path at
+// fallbackEngine returns the engine for a resolved fallback font reference at
 // the given scale, reading the font bytes once (cached in the resolver) and
-// deriving one engine per scale. Failures are not cached: a later layout
-// retries and the rune degrades to the primary notdef meanwhile.
-func (s *hbShaper) fallbackEngine(path string, scale float64) (*hbEngine, error) {
-	if byScale := s.fallback[path]; byScale != nil {
+// deriving one engine per face and scale. Failures are not cached: a later
+// layout retries and the rune degrades to the primary notdef meanwhile.
+func (s *hbShaper) fallbackEngine(ref FontRef, scale float64) (*hbEngine, error) {
+	if byScale := s.fallback[ref]; byScale != nil {
 		if e, ok := byScale[scale]; ok {
 			return e, nil
 		}
 	}
-	data, err := s.resolver.dataForPath(path)
+	data, err := s.resolver.dataForPath(ref.Path)
 	if err != nil {
 		return nil, err
 	}
-	e, err := newHBEngine(data, s.size, scale)
+	e, err := newHBEngine(data, s.size, scale, ref.FaceIndex)
 	if err != nil {
 		return nil, err
 	}
 	if s.fallback == nil {
-		s.fallback = make(map[string]map[float64]*hbEngine)
+		s.fallback = make(map[FontRef]map[float64]*hbEngine)
 	}
-	if s.fallback[path] == nil {
-		s.fallback[path] = make(map[float64]*hbEngine)
+	if s.fallback[ref] == nil {
+		s.fallback[ref] = make(map[float64]*hbEngine)
 	}
-	s.fallback[path][scale] = e
+	s.fallback[ref][scale] = e
 	s.order = append(s.order, e)
 	return e, nil
 }
@@ -338,12 +347,12 @@ func (s *hbShaper) layout(value string, scaleX, scaleY float64) (LineLayout, err
 		if primary.covers(r) {
 			return primary
 		}
-		path, lookupErr := s.resolver.pathForRune(r)
-		if lookupErr != nil || path == "" {
+		ref, lookupErr := s.resolver.refForRune(r)
+		if lookupErr != nil || ref.Path == "" {
 			layout.noteMissing(r)
 			return primary
 		}
-		fb, openErr := s.fallbackEngine(path, scaleY)
+		fb, openErr := s.fallbackEngine(ref, scaleY)
 		if openErr != nil {
 			layout.noteMissing(r)
 			return primary

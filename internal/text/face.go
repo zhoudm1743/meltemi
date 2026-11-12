@@ -161,9 +161,11 @@ type Face struct {
 // not a usable font or the size is not positive. On Linux with cgo the face
 // shapes with HarfBuzz and rasterizes by glyph ID with FreeType, falling back
 // to system fonts through fontconfig for runes the primary font does not
-// cover. Windows keeps the legacy x/image engine and, when a system font
-// covers the rune, falls back to that font for the same missing-glyph
-// case. Other builds keep the legacy engine with no system fallback.
+// cover. Windows uses the same HarfBuzz/FreeType engine when built with the
+// meltemi_text_harfbuzz tag and falls back through the Windows font
+// candidates; without that tag it keeps the legacy x/image engine with
+// per-rune system font fallback for missing glyphs. Other builds keep the
+// legacy engine with no system fallback.
 func NewFace(data []byte, size float64) (*Face, error) {
 	if size <= 0 {
 		return nil, fmt.Errorf("text: font size %v is not positive", size)

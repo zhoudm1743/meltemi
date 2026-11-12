@@ -41,14 +41,14 @@ var liveEngines atomic.Int32
 // allocated. It is 0 on builds without a native engine.
 func hbEnginesAlive() int { return int(liveEngines.Load()) }
 
-// ShapingEngine names the active shaping engine: "harfbuzz" on Linux+cgo
-// builds with HarfBuzz/FreeType/fontconfig, "legacy" elsewhere.
-func ShapingEngine() string {
-	if newComplexShaper != nil {
-		return "harfbuzz"
-	}
-	return "legacy"
-}
+// shapingEngineName is set by whichever complex-text engine compiled in: the
+// pure-Go engine (default) sets "go-text", the cgo HarfBuzz engine (opt-in via
+// the meltemi_text_cgo tag) sets "harfbuzz-cgo". It stays "legacy" when no
+// complex engine is registered.
+var shapingEngineName = "legacy"
+
+// ShapingEngine names the active shaping engine.
+func ShapingEngine() string { return shapingEngineName }
 
 // legacyCaretOffsets replays the kern-aware pen progression the legacy
 // rasterizer paints, returning one boundary position per rune plus the

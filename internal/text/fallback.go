@@ -11,12 +11,21 @@ import "os"
 // lookupSystemFont and readFontFile are package-level seams so tests can
 // count queries and inject discovery/IO failures without a real fontconfig.
 
-// lookupSystemFont resolves a rune to the path of a system font that covers
-// it. It returns ("", nil) when no system font covers the rune; the result
+// FontRef identifies a system font file and, for a collection (TTC/OTC), the
+// face index inside it. FaceIndex is 0 for the common single-font case. The
+// complex-text engine must open exactly this face so coverage discovery and
+// the glyphs actually drawn agree.
+type FontRef struct {
+	Path      string
+	FaceIndex int
+}
+
+// lookupSystemFont resolves a rune to the system font that covers it. It
+// returns the zero FontRef when no system font covers the rune; the result
 // (including the negative one) is cached by the resolver.
-var lookupSystemFont = func(r rune) (string, error) {
+var lookupSystemFont = func(r rune) (FontRef, error) {
 	if systemFontPath == nil {
-		return "", nil
+		return FontRef{}, nil
 	}
 	return systemFontPath(r)
 }
@@ -25,9 +34,9 @@ var lookupSystemFont = func(r rune) (string, error) {
 // tests can inject unreadable files.
 var readFontFile = os.ReadFile
 
-// systemFontPath is installed by the fontconfig build (linux+cgo); it is
-// nil where no system font lookup exists.
-var systemFontPath func(r rune) (string, error)
+// systemFontPath is installed by the fontconfig build (linux+cgo) or by the
+// Windows font lookup; it is nil where no system font lookup exists.
+var systemFontPath func(r rune) (FontRef, error)
 
 // fallbackResolver caches the rune → font-path mapping and the path → data
 // bytes mapping for one face. It owns no C resources; the engine opens the
@@ -39,23 +48,23 @@ var systemFontPath func(r rune) (string, error)
 // cached: they surface to the caller, which degrades to the primary font's
 // notdef glyph, and the next layout retries.
 type fallbackResolver struct {
-	byRune     map[rune]string // "" means no system font covers the rune
+	byRune     map[rune]FontRef // zero value means no system font covers the rune
 	dataByPath map[string][]byte
 }
 
-func (r *fallbackResolver) pathForRune(ru rune) (string, error) {
+func (r *fallbackResolver) refForRune(ru rune) (FontRef, error) {
 	if r.byRune == nil {
-		r.byRune = make(map[rune]string)
+		r.byRune = make(map[rune]FontRef)
 	}
-	if path, ok := r.byRune[ru]; ok {
-		return path, nil
+	if ref, ok := r.byRune[ru]; ok {
+		return ref, nil
 	}
-	path, err := lookupSystemFont(ru)
+	ref, err := lookupSystemFont(ru)
 	if err != nil {
-		return "", err
+		return FontRef{}, err
 	}
-	r.byRune[ru] = path
-	return path, nil
+	r.byRune[ru] = ref
+	return ref, nil
 }
 
 func (r *fallbackResolver) dataForPath(path string) ([]byte, error) {

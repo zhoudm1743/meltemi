@@ -4,4 +4,5 @@
 coverage.txt
 /meltemi
 /wind-*
+/third_party/windows-text/
 .DS_Store

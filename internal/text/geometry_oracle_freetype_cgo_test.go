@@ -1,4 +1,4 @@
-//go:build linux && cgo
+//go:build (linux || windows) && cgo && meltemi_text_cgo
 
 package text
 
@@ -21,7 +21,7 @@ func TestMarkOffsetConvention(t *testing.T) {
 	logShapingEnv(t, dejaVuSans)
 
 	data := systemFont(t, dejaVuSans)
-	eng, err := newHBEngine(data, 20, 1)
+	eng, err := newHBEngine(data, 20, 1, 0)
 	if err != nil {
 		t.Fatalf("newHBEngine: %v", err)
 	}

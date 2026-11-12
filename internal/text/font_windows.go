@@ -29,22 +29,25 @@ var windowsFontCandidates = []string{
 
 var (
 	winFontMu     sync.Mutex
-	winFontByRune = map[rune]string{}
+	winFontByRune = map[rune]FontRef{}
 	winFontBytes  = map[string][]byte{}
 	winFontColl   = map[string]*opentype.Collection{}
 	winFontBuf    sfnt.Buffer
 )
 
-func windowsSystemFont(r rune) (string, error) {
+// windowsSystemFont returns the first candidate font that covers r, including
+// the collection member index so the complex-text engine opens the same face
+// that coverage discovery matched. A zero FontRef means no candidate covers r.
+func windowsSystemFont(r rune) (FontRef, error) {
 	winFontMu.Lock()
 	defer winFontMu.Unlock()
-	if path, ok := winFontByRune[r]; ok {
-		return path, nil
+	if ref, ok := winFontByRune[r]; ok {
+		return ref, nil
 	}
-	var found string
+	var found FontRef
 	for _, path := range windowsFontCandidates {
-		if windowsFontCovers(path, r) {
-			found = path
+		if index := windowsCoveringFaceIndex(path, r); index >= 0 {
+			found = FontRef{Path: path, FaceIndex: index}
 			break
 		}
 	}
@@ -52,10 +55,13 @@ func windowsSystemFont(r rune) (string, error) {
 	return found, nil
 }
 
-func windowsFontCovers(path string, r rune) bool {
+// windowsCoveringFaceIndex returns the index of the collection member that
+// covers r, or -1 when the file is unreadable or no face covers r. The caller
+// must hold winFontMu.
+func windowsCoveringFaceIndex(path string, r rune) int {
 	collection, err := windowsCollection(path)
 	if err != nil || collection == nil {
-		return false
+		return -1
 	}
 	for i := 0; i < collection.NumFonts(); i++ {
 		face, err := collection.Font(i)
@@ -64,10 +70,10 @@ func windowsFontCovers(path string, r rune) bool {
 		}
 		index, err := face.GlyphIndex(&winFontBuf, r)
 		if err == nil && index != 0 {
-			return true
+			return i
 		}
 	}
-	return false
+	return -1
 }
 
 func windowsCollection(path string) (*opentype.Collection, error) {

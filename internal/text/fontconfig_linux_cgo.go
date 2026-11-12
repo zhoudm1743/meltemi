@@ -1,4 +1,4 @@
-//go:build linux && cgo
+//go:build linux && cgo && meltemi_text_cgo
 
 package text
 
@@ -66,5 +66,8 @@ func fcFontForRune(r rune) (string, error) {
 }
 
 func init() {
-	systemFontPath = fcFontForRune
+	systemFontPath = func(r rune) (FontRef, error) {
+		path, err := fcFontForRune(r)
+		return FontRef{Path: path}, err
+	}
 }

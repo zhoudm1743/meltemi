@@ -158,6 +158,12 @@ func TestInputCaretIgnoresBitmapOverhang(t *testing.T) {
 	narrow := Input(nil)
 	setTreeFace(narrow, face)
 	narrow.arrange(rect(0, 0, 22, 36))
+	// The measured advance differs by sub-pixel amounts between shaping
+	// engines (hinted vs unhinted metrics), so derive the viewport from it:
+	// the advance must fit with a 1px caret, while the italic ink overhang
+	// still exceeds the viewport.
+	padding := 22 - narrow.contentRect().Width
+	narrow.arrange(rect(0, 0, float64(int(advance)+2)+padding, 36))
 	narrow.SetValue("f")
 	if narrow.scrollX != 0 {
 		t.Errorf("advance-fitting text scrollX = %v, want 0 despite bitmap overhang", narrow.scrollX)

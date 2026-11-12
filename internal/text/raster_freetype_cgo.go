@@ -1,4 +1,4 @@
-//go:build linux && cgo
+//go:build (linux || windows) && cgo && meltemi_text_cgo
 
 package text
 
@@ -7,7 +7,9 @@ package text
 // coverage) and blitted into the line bitmap in visual paint order.
 
 /*
-#cgo pkg-config: freetype2
+#cgo linux pkg-config: freetype2
+#cgo windows CFLAGS: -I${SRCDIR}/../../third_party/windows-text/include/freetype2
+#cgo windows LDFLAGS: -L${SRCDIR}/../../third_party/windows-text/lib -lfreetype -lm
 #include <stdlib.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H

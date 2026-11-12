@@ -413,7 +413,7 @@ func TestFontFallbackDiscoveryAndLifecycle(t *testing.T) {
 		var lookups, reads int
 		origLookup, origRead := lookupSystemFont, readFontFile
 		t.Cleanup(func() { lookupSystemFont, readFontFile = origLookup, origRead })
-		lookupSystemFont = func(r rune) (string, error) { lookups++; return origLookup(r) }
+		lookupSystemFont = func(r rune) (FontRef, error) { lookups++; return origLookup(r) }
 		readFontFile = func(path string) ([]byte, error) { reads++; return origRead(path) }
 		if _, err := face.Layout("中"); err != nil {
 			t.Fatalf("Layout(中) error = %v", err)
@@ -472,7 +472,7 @@ func TestFontFallbackDiscoveryAndLifecycle(t *testing.T) {
 		var lookups int
 		origLookup := lookupSystemFont
 		t.Cleanup(func() { lookupSystemFont = origLookup })
-		lookupSystemFont = func(r rune) (string, error) { lookups++; return origLookup(r) }
+		lookupSystemFont = func(r rune) (FontRef, error) { lookups++; return origLookup(r) }
 		if _, err := face.Layout("中"); err != nil {
 			t.Fatalf("Layout(中) error = %v", err)
 		}
@@ -486,7 +486,12 @@ func TestFontFallbackDiscoveryAndLifecycle(t *testing.T) {
 		var lookups int
 		origLookup := lookupSystemFont
 		t.Cleanup(func() { lookupSystemFont = origLookup })
-		lookupSystemFont = func(r rune) (string, error) { lookups++; return "", nil }
+		lookupSystemFont = func(r rune) (FontRef, error) { lookups++; return FontRef{}, nil }
+		// Isolate the seam: the pure-Go engine also has a fontscan index
+		// that would otherwise resolve 中 from the real system fonts.
+		origScan := fontScanLookup
+		fontScanLookup = nil
+		t.Cleanup(func() { fontScanLookup = origScan })
 		layout, err := face.Layout("W中d")
 		if err != nil {
 			t.Fatalf("Layout with unresolved rune error = %v, want nil", err)
@@ -511,12 +516,16 @@ func TestFontFallbackDiscoveryAndLifecycle(t *testing.T) {
 		var lookups, reads int
 		origLookup, origRead := lookupSystemFont, readFontFile
 		t.Cleanup(func() { lookupSystemFont, readFontFile = origLookup, origRead })
-		lookupSystemFont = func(r rune) (string, error) {
+		// Isolate the seam from the pure-Go fontscan index.
+		origScan := fontScanLookup
+		fontScanLookup = nil
+		t.Cleanup(func() { fontScanLookup = origScan })
+		lookupSystemFont = func(r rune) (FontRef, error) {
 			lookups++
 			if lookups == 1 {
-				return "", errTestSeam
+				return FontRef{}, errTestSeam
 			}
-			return "/nonexistent/fallback-font.ttf", nil
+			return FontRef{Path: "/nonexistent/fallback-font.ttf"}, nil
 		}
 		readFontFile = func(path string) ([]byte, error) {
 			reads++
@@ -543,26 +552,37 @@ func TestFontFallbackDiscoveryAndLifecycle(t *testing.T) {
 		if reads != 1 {
 			t.Errorf("reads = %d, want 1", reads)
 		}
-		// No engine leak from the failed fallback loads.
-		if n := hbEnginesAlive(); n <= 0 {
-			t.Errorf("hbEnginesAlive = %d, want > 0 (primary alive)", n)
+		// No engine leak from the failed fallback loads. Only the cgo engine
+		// owns native engines; the pure-Go engine has no counter to inspect.
+		if ShapingEngine() == "harfbuzz-cgo" {
+			if n := hbEnginesAlive(); n <= 0 {
+				t.Errorf("hbEnginesAlive = %d, want > 0 (primary alive)", n)
+			}
 		}
 	})
 
 	t.Run("closeReleasesEngines", func(t *testing.T) {
-		if n := hbEnginesAlive(); n != 0 {
-			t.Fatalf("engines alive before test = %d, want 0 (leak from earlier tests)", n)
+		cgo := ShapingEngine() == "harfbuzz-cgo"
+		if cgo {
+			if n := hbEnginesAlive(); n != 0 {
+				t.Fatalf("engines alive before test = %d, want 0 (leak from earlier tests)", n)
+			}
 		}
 		face := newCJKFreeFace(t)
-		before := hbEnginesAlive()
-		if before != 1 {
-			t.Fatalf("engines after NewFace = %d, want 1 (primary only)", before)
+		before := 0
+		if cgo {
+			before = hbEnginesAlive()
+			if before != 1 {
+				t.Fatalf("engines after NewFace = %d, want 1 (primary only)", before)
+			}
 		}
 		if _, err := face.Layout("中文"); err != nil {
 			t.Fatalf("Layout: %v", err)
 		}
-		if n := hbEnginesAlive(); n < before+1 {
-			t.Errorf("engines after CJK layout = %d, want > %d (fallback derived)", n, before)
+		if cgo {
+			if n := hbEnginesAlive(); n < before+1 {
+				t.Errorf("engines after CJK layout = %d, want > %d (fallback derived)", n, before)
+			}
 		}
 		if err := face.Close(); err != nil {
 			t.Fatalf("Close error = %v", err)
@@ -570,8 +590,10 @@ func TestFontFallbackDiscoveryAndLifecycle(t *testing.T) {
 		if err := face.Close(); err != nil {
 			t.Fatalf("second Close error = %v, want nil (idempotent)", err)
 		}
-		if n := hbEnginesAlive(); n != 0 {
-			t.Errorf("engines after Close = %d, want 0", n)
+		if cgo {
+			if n := hbEnginesAlive(); n != 0 {
+				t.Errorf("engines after Close = %d, want 0", n)
+			}
 		}
 		if _, err := face.Layout("x"); err == nil {
 			t.Error("Layout on closed face error = nil, want non-nil")
